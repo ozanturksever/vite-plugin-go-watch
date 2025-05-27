@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-go-watch",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "A Vite plugin to watch Go files, rebuild the Go application on changes, and trigger Vite dev server refresh",
   "main": "vite-plugin-go-watch.js",
   "type": "module",
@@ -15,7 +15,7 @@
     "watch",
     "hot-reload"
   ],
-  "author": "",
+  "author": "Ozan Turksever <ozan.turksever@gmail.com>",
   "license": "MIT",
   "dependencies": {
     "chokidar": "^3.5.3"

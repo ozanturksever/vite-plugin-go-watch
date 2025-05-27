@@ -20,6 +20,8 @@ import fs from "fs"; // For ensuring output directory exists
  * @property {boolean} [remoteDebug=false] - Enable remote debugging with Delve.
  * @property {number} [remoteDebugPort=2345] - Port for Delve remote debugging.
  * @property {boolean} [dontRun=false] - Build the Go app but don't run it, just log the run command.
+ * @property {string | string[]} [skipRebuildDirs=[]] - Directories to skip rebuilding when changes are detected.
+ * @property {string} [logFilePath='/tmp/process.log'] - Path for redirecting stdout and stderr of the Go process.
  */
 
 /**
@@ -43,12 +45,15 @@ export default function goWatchPlugin(options = {}) {
     preCmds = [],
     remoteDebug = false, // Option for remote debugging with Delve
     remoteDebugPort = 2345, // Default port for Delve remote debugging
-    dontRun = false // Option to build but not run the Go app
+    dontRun = false, // Option to build but not run the Go app
+    skipRebuildDirs = [], // Directories to skip rebuilding when changes are detected
+    logFilePath = "/tmp/process.log" // Path for redirecting stdout and stderr
   } = options;
 
   let goProcess = null;
   let buildTimeout = null;
   let isKillingProcess = false;
+  let isBuildInProgress = false;
 
   function log(message) {
     console.log(`${logPrefix} ${message}`);
@@ -226,8 +231,8 @@ export default function goWatchPlugin(options = {}) {
       spawnedProcess.on("spawn", onSpawn);
 
       // Create a write stream to the log file
-      const logStream = fs.createWriteStream("/tmp/process.log", { flags: "a" });
-      log(`Redirecting Go app output to /tmp/process.log`);
+      const logStream = fs.createWriteStream(logFilePath, { flags: "a" });
+      log(`Redirecting Go app output to ${logFilePath}`);
 
       if (readyPattern && spawnedProcess.stdout) {
         spawnedProcess.stdout.on("data", (data) => {
@@ -344,6 +349,7 @@ export default function goWatchPlugin(options = {}) {
   async function restartGoApp() {
     log("Attempting to restart the Go app after unexpected exit...");
     try {
+      isBuildInProgress = true;
       // Make sure any previous process is killed
       await killGoProcess();
 
@@ -363,6 +369,7 @@ export default function goWatchPlugin(options = {}) {
         await runGoApp(binaryPath); // This now waits for the ready signal if configured
         log("Go app restarted and reported ready (or timed out).");
       }
+      isBuildInProgress = false;
     } catch (error) {
       const errorMessage = error.message || String(error);
       log(`Error during Go app restart: ${errorMessage}`);
@@ -371,12 +378,57 @@ export default function goWatchPlugin(options = {}) {
       setTimeout(() => {
         restartGoApp();
       }, 5000);
+      isBuildInProgress = false;
+    }
+  }
+
+  /**
+   * Executes only the pre-commands without rebuilding or restarting the Go app
+   * @param {object} server - The Vite server instance
+   * @param {string} reason - The reason for running pre-commands only
+   * @returns {Promise<void>} - Resolves when all pre-commands are executed
+   */
+  async function runPreCommandsOnly(server, reason) {
+    log(`Change detected in ${reason}. Running pre-commands only without rebuilding...`);
+    try {
+      isBuildInProgress = true;
+      // Execute pre-commands
+      await executePreCommands();
+
+      log(`Pre-commands executed successfully. Skipping rebuild for ${reason}.`);
+
+      // Send full-reload signal after pre-commands run for skipdirs
+      if (server && server.ws) {
+        log(`Triggering full-reload after pre-commands for ${reason}.`);
+        server.ws.send({ type: "full-reload", path: "*" });
+      } else {
+        console.error(`${logPrefix} WebSocket server not available to send reload to client.`);
+      }
+      isBuildInProgress = false;
+    } catch (error) {
+      const errorMessage = error.message || String(error);
+      log(`Error during pre-commands execution: ${errorMessage}`);
+      if (server && server.ws) {
+        server.ws.send({
+          type: "error",
+          err: {
+            message: `Pre-commands error: ${errorMessage}`,
+            stack: error.stack || "",
+            plugin: "vite-plugin-go-watch",
+            id: goFile
+          }
+        });
+      } else {
+        console.error(`${logPrefix} WebSocket server not available to send error to client.`);
+      }
+      isBuildInProgress = false;
     }
   }
 
   async function rebuildAndRestartGoApp(server) {
     log("Change detected. Rebuilding and restarting Go app...");
     try {
+      isBuildInProgress = true;
       await killGoProcess();
 
       // Execute pre-commands before building
@@ -397,6 +449,7 @@ export default function goWatchPlugin(options = {}) {
         log("Go app reported ready (or timed out). Triggering Vite reload.");
         server.ws.send({ type: "full-reload", path: "*" });
       }
+      isBuildInProgress = false;
     } catch (error) {
       const errorMessage = error.message || String(error);
       log(`Error during Go app rebuild/restart/ready-check: ${errorMessage}`);
@@ -413,6 +466,7 @@ export default function goWatchPlugin(options = {}) {
       } else {
         console.error(`${logPrefix} WebSocket server not available to send error to client.`);
       }
+      isBuildInProgress = false;
     }
   }
 
@@ -420,6 +474,27 @@ export default function goWatchPlugin(options = {}) {
     name: "vite-plugin-go-watch",
     apply: "serve",
     async configureServer(server) {
+      // Normalize skipRebuildDirs to an array of absolute paths
+      const normalizedSkipDirs = (Array.isArray(skipRebuildDirs) ? skipRebuildDirs : [skipRebuildDirs])
+        .filter(dir => dir) // Filter out empty strings
+        .map(dir => path.resolve(process.cwd(), dir));
+
+      if (normalizedSkipDirs.length > 0) {
+        log(`Skip rebuilding for changes in: ${normalizedSkipDirs.map(p => path.relative(process.cwd(), p)).join(", ")}`);
+      }
+
+      // Function to check if a file path is in one of the skip directories
+      const shouldSkipRebuild = (filePath) => {
+        if (normalizedSkipDirs.length === 0) return false;
+
+        // Check if the file path starts with any of the skip directories
+        return normalizedSkipDirs.some(skipDir => {
+          // Ensure both paths end with path separator for exact directory matching
+          const normalizedSkipDir = skipDir.endsWith(path.sep) ? skipDir : skipDir + path.sep;
+          return filePath.startsWith(normalizedSkipDir);
+        });
+      };
+
       const pathsToWatch = (Array.isArray(watchDir) ? watchDir : [watchDir])
         .map(dir => path.resolve(process.cwd(), dir, "**/*.go"));
       log(`Watching for .go file changes in: ${pathsToWatch.map(p => path.relative(process.cwd(), p)).join(", ")}`);
@@ -430,19 +505,67 @@ export default function goWatchPlugin(options = {}) {
       });
       const debouncedRebuild = () => {
         clearTimeout(buildTimeout);
-        buildTimeout = setTimeout(() => rebuildAndRestartGoApp(server), buildDelay);
+        if (isBuildInProgress) {
+          log("Build already in progress. Killing it and starting a new build immediately...");
+          killGoProcess().then(() => {
+            buildTimeout = setTimeout(() => rebuildAndRestartGoApp(server), buildDelay);
+          });
+        } else {
+          buildTimeout = setTimeout(() => rebuildAndRestartGoApp(server), buildDelay);
+        }
       };
+
+      const debouncedPreCommandsOnly = (reason) => {
+        clearTimeout(buildTimeout);
+        if (isBuildInProgress) {
+          log(`Pre-commands for ${reason} requested, but a build is already in progress. Killing it and running pre-commands immediately...`);
+          killGoProcess().then(() => {
+            buildTimeout = setTimeout(() => runPreCommandsOnly(server, reason), buildDelay);
+          });
+        } else {
+          buildTimeout = setTimeout(() => runPreCommandsOnly(server, reason), buildDelay);
+        }
+      };
+
       watcher
         .on("add", filePath => {
-          log(`Go file added: ${path.relative(process.cwd(), filePath)}`);
+          const relPath = path.relative(process.cwd(), filePath);
+          log(`Go file added: ${relPath}`);
+
+          if (shouldSkipRebuild(filePath)) {
+            log(`Skipping rebuild for file in ignored directory: ${relPath}`);
+            // Run pre-commands only
+            debouncedPreCommandsOnly(`ignored directory (${relPath})`);
+            return;
+          }
+
           debouncedRebuild();
         })
         .on("change", filePath => {
-          log(`Go file changed: ${path.relative(process.cwd(), filePath)}`);
+          const relPath = path.relative(process.cwd(), filePath);
+          log(`Go file changed: ${relPath}`);
+
+          if (shouldSkipRebuild(filePath)) {
+            log(`Skipping rebuild for file in ignored directory: ${relPath}`);
+            // Run pre-commands only
+            debouncedPreCommandsOnly(`ignored directory (${relPath})`);
+            return;
+          }
+
           debouncedRebuild();
         })
         .on("unlink", filePath => {
-          log(`Go file removed: ${path.relative(process.cwd(), filePath)}. Rebuilding...`);
+          const relPath = path.relative(process.cwd(), filePath);
+          log(`Go file removed: ${relPath}`);
+
+          if (shouldSkipRebuild(filePath)) {
+            log(`Skipping rebuild for file in ignored directory: ${relPath}`);
+            // Run pre-commands only
+            debouncedPreCommandsOnly(`ignored directory (${relPath})`);
+            return;
+          }
+
+          log(`Rebuilding...`);
           debouncedRebuild();
         });
 
