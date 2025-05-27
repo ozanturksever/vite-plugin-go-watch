@@ -12,5 +12,13 @@ export default defineConfig({
       readyPattern: /Server started/,
       buildDelay: 500
     })
-  ]
+  ],
+  server: {
+    proxy: {
+      '/test': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
+      }
+    }
+  }
 });
