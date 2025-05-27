@@ -1,0 +1,37 @@
+{
+  "name": "vite-plugin-go-watch",
+  "version": "1.0.0",
+  "description": "A Vite plugin to watch Go files, rebuild the Go application on changes, and trigger Vite dev server refresh",
+  "main": "vite-plugin-go-watch.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "vite",
+    "vite-plugin",
+    "go",
+    "golang",
+    "watch",
+    "hot-reload"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "chokidar": "^3.5.3"
+  },
+  "peerDependencies": {
+    "vite": "^2.0.0 || ^3.0.0 || ^4.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/vite-plugin-go-watch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/vite-plugin-go-watch/issues"
+  },
+  "homepage": "https://github.com/yourusername/vite-plugin-go-watch#readme"
+}

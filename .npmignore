@@ -1,0 +1,36 @@
+# Git files
+.git
+.gitignore
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Test files
+test/
+tests/
+__tests__/
+*.test.js
+*.spec.js
+
+# Configuration files not needed in the package
+.eslintrc
+.prettierrc
+.babelrc
+tsconfig.json
+
+# Documentation files (README.md is automatically included)
+docs/
+examples/
+
+# CI/CD files
+.github/
+.travis.yml
+.gitlab-ci.yml
+appveyor.yml
+
+# Misc
+.DS_Store
+*.log
