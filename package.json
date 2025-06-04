@@ -28,10 +28,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/vite-plugin-go-watch.git"
+    "url": "git+https://github.com/ozanturksever/vite-plugin-go-watch.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/vite-plugin-go-watch/issues"
+    "url": "https://github.com/ozanturksever/vite-plugin-go-watch/issues"
   },
-  "homepage": "https://github.com/yourusername/vite-plugin-go-watch#readme"
+  "homepage": "https://github.com/ozanturksever/vite-plugin-go-watch#readme"
 }
