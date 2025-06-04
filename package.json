@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-go-watch",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A Vite plugin to watch Go files, rebuild the Go application on changes, and trigger Vite dev server refresh",
   "main": "vite-plugin-go-watch.js",
   "type": "module",
